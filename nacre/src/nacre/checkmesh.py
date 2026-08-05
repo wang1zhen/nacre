@@ -149,6 +149,7 @@ def run_checkmesh(
 
     with tempfile.TemporaryDirectory(prefix="nacre-checkmesh-") as temporary:
         case = Path(temporary)
+        case.chmod(0o755)
         (case / "system").mkdir()
         shutil.copytree(source, case / "constant" / "polyMesh")
         (case / "system" / "controlDict").write_text(

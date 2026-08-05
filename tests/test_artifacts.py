@@ -2,10 +2,11 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from conftest import EvaluatedFixture
 from fixtures import FIXTURE_SPECS
-from rendering import render_fixture
+from rendering import assert_nonuniform_render, render_fixture
 
 
 ARTIFACT_DIR = Path(__file__).parent / "artifacts"
@@ -22,6 +23,11 @@ METRIC_COLUMNS = (
     "layer_coverage",
     "wall_time_s",
 )
+
+
+def test_blank_render_is_rejected() -> None:
+    with pytest.raises(AssertionError, match="blank or near-uniform"):
+        assert_nonuniform_render(np.zeros((32, 32, 3), dtype=np.uint8), "blank.png")
 
 
 def test_emit_visual_and_metrics_artifacts(

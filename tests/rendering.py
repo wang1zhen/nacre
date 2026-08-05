@@ -3,15 +3,72 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
 import numpy as np
 
 os.environ.setdefault("PYVISTA_OFF_SCREEN", "true")
-os.environ.setdefault("VTK_DEFAULT_OPENGL_WINDOW", "vtkEGLRenderWindow")
 os.environ.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
 os.environ.setdefault("MPLCONFIGDIR", str(Path(tempfile.gettempdir()) / "nacre-mpl"))
+
+
+MIN_CHANNEL_STD = 1.0
+MIN_DISTINCT_COLORS = 1
+_BACKENDS = (
+    ("EGL", "vtkEGLRenderWindow"),
+    ("OSMesa", "vtkOSOpenGLRenderWindow"),
+    ("Xvfb", "vtkXOpenGLRenderWindow"),
+)
+_PROBE = f"""
+import os
+import numpy as np
+os.environ['PYVISTA_OFF_SCREEN'] = 'true'
+os.environ['LIBGL_ALWAYS_SOFTWARE'] = '1'
+import pyvista as pv
+p = pv.Plotter(off_screen=True, window_size=(96, 72))
+p.ren_win.SetMultiSamples(0)
+p.set_background('#f4f6f8')
+p.add_mesh(pv.Cube(), color='#e76f51', lighting=True)
+p.camera_position = 'iso'
+image = np.asarray(p.screenshot(return_img=True))[..., :3]
+actual = type(p.ren_win).__name__
+p.close()
+std = image.reshape(-1, 3).std(axis=0)
+colors = np.unique(image.reshape(-1, 3), axis=0).shape[0]
+assert np.all(std > {MIN_CHANNEL_STD!r}), (std, colors)
+assert colors > {MIN_DISTINCT_COLORS!r}, (std, colors)
+print('NACRE_RENDER_PROBE:' + actual)
+"""
+
+
+def _select_backend() -> tuple[str, str]:
+    failures: list[str] = []
+    for name, vtk_class in _BACKENDS:
+        environment = os.environ.copy()
+        environment["VTK_DEFAULT_OPENGL_WINDOW"] = vtk_class
+        completed = subprocess.run(
+            [sys.executable, "-c", _PROBE],
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=30,
+            check=False,
+        )
+        marker = f"NACRE_RENDER_PROBE:{vtk_class}"
+        if completed.returncode == 0 and marker in completed.stdout:
+            os.environ["VTK_DEFAULT_OPENGL_WINDOW"] = vtk_class
+            print(f"nacre headless renderer: {name} ({vtk_class})", flush=True)
+            return name, vtk_class
+        detail = (completed.stderr or completed.stdout).strip().splitlines()
+        failures.append(f"{name}: {detail[-1] if detail else 'probe failed'}")
+        print(f"nacre headless renderer rejected {name}", flush=True)
+    raise RuntimeError("no usable headless renderer; " + "; ".join(failures))
+
+
+RENDER_BACKEND, RENDER_WINDOW_CLASS = _select_backend()
 
 import pyvista as pv
 
@@ -89,8 +146,29 @@ def _plotter(mesh: PolyMeshIR) -> pv.Plotter:
     return plotter
 
 
+def assert_nonuniform_render(image: np.ndarray, path: Path | str) -> None:
+    """Reject blank or near-uniform output from a nominally successful render."""
+
+    pixels = np.asarray(image)[..., :3]
+    channel_std = pixels.reshape(-1, 3).std(axis=0)
+    distinct_colors = np.unique(pixels.reshape(-1, 3), axis=0).shape[0]
+    assert np.all(channel_std > MIN_CHANNEL_STD), (
+        f"blank or near-uniform render {path}: channel std={channel_std}"
+    )
+    assert distinct_colors > MIN_DISTINCT_COLORS, (
+        f"blank or near-uniform render {path}: {distinct_colors} distinct colors"
+    )
+
+
 def _save(plotter: pv.Plotter, path: Path) -> None:
-    plotter.show(screenshot=path, auto_close=True, interactive=False)
+    image = plotter.show(
+        screenshot=path,
+        auto_close=False,
+        interactive=False,
+        return_img=True,
+    )
+    plotter.close()
+    assert_nonuniform_render(image, path)
 
 
 def render_fixture(mesh: PolyMeshIR, fixture: str, artifact_dir: Path) -> list[Path]:
@@ -142,3 +220,7 @@ def render_fixture(mesh: PolyMeshIR, fixture: str, artifact_dir: Path) -> list[P
     _save(cut, outputs[2])
 
     return outputs
+
+
+if __name__ == "__main__":
+    print(f"selected renderer backend: {RENDER_BACKEND}")
