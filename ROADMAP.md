@@ -43,6 +43,7 @@ Effort estimates are rough guesses for one experienced full-time-equivalent deve
 - Define and freeze `SurfaceInput` and `SizeField` against the Gmsh bake producer before implementing size-field work.
 - Bake and commit the corpus `.npz` golden files so core CI no longer requires Gmsh.
 - Import principal curvature from Gmsh BREP queries during baking.
+- Defer the STL input path, `mesh.classifySurfaces` plus `mesh.createGeometry`, to a later task. It is a **degraded path with reduced curvature fidelity**: a triangulated surface has no BREP, so Gmsh must reconstruct a single-map parametrization per reconstructed patch and curvature comes from that reconstruction rather than from the analytic surface. Feature edges likewise fall back to a facet-angle threshold, which is mesh-resolution dependent. Expect the analytic anchors to hold only to discretization error, and expect no fluid-side orientation from `isInside`, because there is no solid to be inside; the STL path needs its own orientation strategy. STL cases must be reported separately from BREP cases and must never set the curvature tolerances for the corpus.
 - Add body-of-influence (BOI) sizing through explicit geometry primitives.
 - Add proximity sizing through signed-distance queries.
 - Blend sources into a positive size field with an explicit Lipschitz/growth-rate limit.

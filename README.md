@@ -38,7 +38,7 @@ Modules are deliberately decoupled. Each should be independently testable and in
 
 ```text
 nacre/
-  contract.py     # planned for M1, when the bake pipeline produces SurfaceInput
+  contract.py     # frozen SurfaceInput: baked triangulation, normals, curvature
   meshir.py       # face-based PolyMeshIR: points/faces/owner/neighbour, SoA arrays
   sizefield.py    # curvature + proximity + BOI -> unified size field
   octree.py       # octree construction, size refinement, and 2:1 balance
@@ -50,7 +50,15 @@ nacre/
   check/          # one invariant checker per module
 
 nacre_gmsh/       # separate GPL package: STEP -> SurfaceInput
+  session.py      # deterministic Gmsh initialize/finalize
+  query.py        # batched BREP queries and the global vertex table
+  orient.py       # which side of each CAD face the fluid is on
+  features.py     # feature edges and corners from CAD topology
+  bake.py         # meshing, per-face sampling, and assembly
+  corpus.py       # analytic primitives baked into committed .npz goldens
 ```
+
+Bake a CAD file with `uv run python -m nacre_gmsh bake model.step model.npz`, or rebuild the committed golden corpus with `uv run python -m nacre_gmsh goldens tests/goldens`.
 
 `trim.py` is an anticipated split, not a present implementation commitment: classification and trimming may begin beside octree construction, but move into `trim.py` before `octree.py` approaches the roughly 800-line module budget.
 
@@ -58,25 +66,37 @@ nacre_gmsh/       # separate GPL package: STEP -> SurfaceInput
 
 The implemented `PolyMeshIR` CSR layout, field names, dtypes, and OpenFOAM ordering conventions are frozen. Changing them requires an explicit project-owner decision.
 
-`SurfaceInput` is deliberately deferred until the start of M1, when the Gmsh bake pipeline supplies a real producer. Its planned conceptual API is:
+`SurfaceInput` is frozen as of M1, now that the Gmsh bake pipeline supplies a real producer:
 
 ```python
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class SurfaceInput:
-    points:       np.ndarray   # (Np, 3) float64
-    tris:         np.ndarray   # (Nt, 3) int32
-    tri_patch:    np.ndarray   # (Nt,)   int32
-    patch_names:  tuple[str, ...]
-    vert_normal:  np.ndarray   # (Np, 3) float64
-    vert_kappa:   np.ndarray   # (Np, 2) float64, principal BREP curvatures
-    feat_edges:   np.ndarray   # (Ne, 2) int32
-    feat_corners: np.ndarray   # (Nc,)   int32
+    points:         np.ndarray   # (Np, 3)    float64
+    tris:           np.ndarray   # (Nt, 3)    int32, wound normal-into-fluid
+    tri_patch:      np.ndarray   # (Nt,)      int32
+    patch_names:    tuple[str, ...]
+    patch_types:    tuple[str, ...]           # OpenFOAM boundary type per patch
+    vert_normal:    np.ndarray   # (Np, 3)    float64, points into the fluid
+    vert_kappa:     np.ndarray   # (Np, 2)    float64, principal BREP curvatures
+    vert_kappa_dir: np.ndarray   # (Np, 2, 3) float64, principal directions
+    feat_edges:     np.ndarray   # (Ne, 2)    int32
+    feat_corners:   np.ndarray   # (Nc,)      int32
+    ref_length:     float                     # bounding-box diagonal
 
 class SizeField(Protocol):
     def __call__(self, xyz: np.ndarray) -> np.ndarray: ...  # (N, 3) -> (N,)
 ```
 
+`patch_types`, `vert_kappa_dir`, and `ref_length` are the three additions to the shape sketched during M0. `patch_types` mirrors `PolyMeshIR` so patch identity survives to the `polyMesh` writer; `vert_kappa_dir` carries the principal directions that Gmsh returns alongside the curvatures and that anisotropic layer growth in M3 needs; `ref_length` is the reference length the roadmap's tolerances are already written against.
+
 `vert_kappa` comes from Gmsh's BREP curvature query, not from a discrete estimate over surface triangles. Retaining CAD-derived curvature is the central reason for using Gmsh as the frontend rather than an STL-only workflow.
+
+Two sign conventions in `SurfaceInput` are frozen alongside the layout, and both were established by experiment rather than assumed, because Gmsh reports neither of them directly:
+
+- **`vert_normal` points into the fluid.** The baked model's solids *are* the fluid domain. `gmsh.model.getNormal` returns the underlying parametric surface normal and ignores face orientation within the solid, so the fluid side is resolved geometrically with `gmsh.model.isInside`.
+- **Curvature is positive where the wall is convex toward the fluid.** `gmsh.model.getPrincipalCurvatures` returns `-1/R` for a sphere whichever side the material is on, so the raw value cannot tell convex from concave; the fluid-side sign is folded in during the bake. A solid sphere of radius `R` in external flow gives `+1/R`, and the same sphere as a fluid-filled chamber gives `-1/R`.
+
+The full derivation, the establishing experiments, and the analytic validation anchors are recorded in the `nacre/contract.py` module docstring.
 
 Once implemented, changing this contract will require an explicit project-owner decision. It must never happen as a side effect of implementing or refactoring another module.
 

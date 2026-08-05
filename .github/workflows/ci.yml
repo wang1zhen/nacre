@@ -87,3 +87,53 @@ jobs:
           path: tests/artifacts/
           if-no-files-found: error
           retention-days: 30
+
+  core-license-boundary:
+    name: Core alone, Gmsh absent (Python 3.13)
+    # The MPL-2.0 core must never acquire a runtime dependency on GPL Gmsh. This
+    # job installs only the core distribution, proves Gmsh is unimportable, and
+    # runs the whole suite against the committed .npz golden files. If anyone
+    # adds a core-module import of gmsh, or lets a core test reach for it, this
+    # goes red on that commit instead of the licence boundary quietly eroding.
+    needs: foundation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7.0.1
+
+      - name: Install uv and Python 3.13
+        uses: astral-sh/setup-uv@v9.0.0
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Restore pinned OpenFOAM image archive
+        id: openfoam-cache
+        uses: actions/cache@v6.1.0
+        with:
+          path: /tmp/nacre-openfoam-2606.tar
+          key: openfoam-run-linux-amd64-4229997e74defb81548222d511b8e3b95b98305e5df41b8e88b031813fe47eeb
+
+      - name: Prepare pinned OpenFOAM image
+        shell: bash
+        run: |
+          if [[ "${{ steps.openfoam-cache.outputs.cache-hit }}" == "true" ]]; then
+            docker load --input /tmp/nacre-openfoam-2606.tar
+          else
+            docker pull "$OPENFOAM_IMAGE_REF"
+            docker tag "$OPENFOAM_IMAGE_REF" "$NACRE_CHECKMESH_IMAGE"
+          fi
+
+      - name: Start fallback Xvfb display
+        uses: pyvista/setup-headless-display-action@v4
+
+      - name: Synchronize the core distribution only
+        run: uv sync --package nacre --locked
+
+      - name: Assert Gmsh is unreachable from the core environment
+        run: uv run --package nacre python tests/test_license_boundary.py
+
+      - name: Run the core test suite against committed golden files
+        run: uv run --package nacre pytest

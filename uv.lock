@@ -751,10 +751,14 @@ version = "0.1.0"
 source = { editable = "nacre_gmsh" }
 dependencies = [
     { name = "gmsh" },
+    { name = "nacre" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "gmsh", specifier = ">=4.15.2" }]
+requires-dist = [
+    { name = "gmsh", specifier = ">=4.15.2" },
+    { name = "nacre", editable = "nacre" },
+]
 
 [[package]]
 name = "numpy"

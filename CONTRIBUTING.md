@@ -32,7 +32,7 @@ A module is not done until its checker passes on the full applicable corpus. Tes
 
 `PolyMeshIR` is frozen. Its CSR layout; field names (`points`, `face_verts`, `face_offset`, `owner`, `neighbour`, `patch_names`, `patch_types`, and `patch_offset`); dtypes; internal-before-boundary face layout; upper-triangular internal-face ordering; and contiguous patch ordering require an explicit decision from the project owner to change. Never alter them as a side effect of implementing another module.
 
-`SurfaceInput` is deliberately not implemented yet. It will be defined at the start of M1, when the Gmsh bake pipeline supplies a real producer against which the contract can be verified. Its absence during M0 is intentional, not an oversight. Once defined, `nacre/contract.py` will receive the same explicit-approval protection.
+`SurfaceInput` is frozen as of M1, when the Gmsh bake pipeline supplied a real producer to verify the contract against. `nacre/contract.py` carries the same explicit-approval protection as `PolyMeshIR`: its field names, dtypes, and both sign conventions — `vert_normal` points into the fluid, and curvature is positive where the wall is convex toward the fluid — require an explicit decision from the project owner to change. The module docstring records the experiment that established each convention; change the convention and you invalidate every committed golden `.npz` and every boundary-layer extrusion direction.
 
 Modules must not reach into one another's private data or share mutable state. Do not perform cross-module refactoring to make an implementation more convenient.
 
@@ -65,7 +65,7 @@ Nightly and release-gated OpenFOAM cases compare against committed numeric refer
 
 ## Corpus, golden files, and visual evidence
 
-- Once `SurfaceInput` is defined in M1, commit baked `.npz` golden files so core CI never requires Gmsh.
+- Commit baked `SurfaceInput` `.npz` golden files so core CI never requires Gmsh. Regenerate them with `uv run python -m nacre_gmsh goldens tests/goldens` and never let a golden become the only definition of correctness: every committed golden must also be checked against closed-form geometry in `tests/surface_anchors.py`.
 - Build and retain a 20--30-geometry corpus from analytic cases through hostile CAD.
 - Track corpus failure rate as the headline robustness metric.
 - Render every test case deterministically to `tests/artifacts/` and archive PNGs per commit.
@@ -74,6 +74,8 @@ Nightly and release-gated OpenFOAM cases compare against committed numeric refer
 ## Licensing boundary
 
 Core `nacre` code is MPL-2.0 and must never contain, link, import, or acquire a runtime dependency on GPL code. Gmsh integration belongs only in the separate GPL-3.0-or-later `nacre-gmsh` distribution. The core consumes baked contract data and does not call Gmsh while meshing.
+
+This is enforced by machine, not by review. `tests/test_license_boundary.py` parses every core module and rejects any `gmsh` or `nacre_gmsh` import, and checks in a subprocess that importing the core loads neither. The `core-license-boundary` CI job then installs the core distribution alone, asserts `import gmsh` raises `ImportError`, and runs the full suite against the committed golden `.npz` files. Only `tests/test_gmsh_bake.py` may import the Gmsh frontend, and it skips itself when the frontend is absent.
 
 ## Names and trademarks
 
