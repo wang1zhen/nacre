@@ -23,17 +23,17 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@v7.0.1
 
       - name: Install uv and Python 3.13
-        uses: astral-sh/setup-uv@v9
+        uses: astral-sh/setup-uv@v9.0.0
         with:
           python-version: "3.13"
           enable-cache: true
 
       - name: Restore pinned OpenFOAM image archive
         id: openfoam-cache
-        uses: actions/cache@v6
+        uses: actions/cache@v6.1.0
         with:
           path: /tmp/nacre-openfoam-2606.tar
           key: openfoam-run-linux-amd64-4229997e74defb81548222d511b8e3b95b98305e5df41b8e88b031813fe47eeb
@@ -81,7 +81,7 @@ jobs:
 
       - name: Archive visual and metrics artifacts
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: nacre-test-artifacts
           path: tests/artifacts/
