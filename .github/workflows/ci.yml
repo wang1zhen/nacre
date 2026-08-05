@@ -1,0 +1,69 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  NACRE_CHECKMESH_IMAGE: nacre-openfoam:2606
+  PYVISTA_OFF_SCREEN: "true"
+  VTK_DEFAULT_OPENGL_WINDOW: vtkEGLRenderWindow
+  LIBGL_ALWAYS_SOFTWARE: "1"
+  MPLCONFIGDIR: /tmp/nacre-matplotlib
+
+jobs:
+  foundation:
+    name: Foundation (Python 3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install uv and Python 3.13
+        uses: astral-sh/setup-uv@v8
+        with:
+          python-version: "3.13"
+          enable-cache: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build cached OpenFOAM runtime
+        uses: docker/build-push-action@v7
+        with:
+          context: .github/openfoam
+          load: true
+          tags: nacre-openfoam:2606
+          cache-from: type=gha,scope=openfoam-2606
+          cache-to: type=gha,mode=max,scope=openfoam-2606
+
+      - name: Synchronize workspace
+        run: uv sync --all-packages --locked
+
+      - name: Verify lockfile
+        run: uv lock --check
+
+      - name: Assert JAX x64 foundation
+        run: >-
+          uv run python -c "import nacre; import jax; import jax.numpy as jnp;
+          assert jax.config.x64_enabled, 'JAX x64 is disabled';
+          assert jnp.zeros(1).dtype.name == 'float64', 'JAX default dtype is not float64';
+          print('JAX x64 active; default dtype float64')"
+
+      - name: Run tests
+        run: uv run pytest
+
+      - name: Archive visual and metrics artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nacre-test-artifacts
+          path: tests/artifacts/
+          if-no-files-found: error
+          retention-days: 30
