@@ -25,16 +25,26 @@ from surface_anchors import (
     patch_smooth_vertices,
 )
 
-gmsh = pytest.importorskip("gmsh", reason="nacre-gmsh is not installed")
-nacre_gmsh = pytest.importorskip("nacre_gmsh", reason="nacre-gmsh is not installed")
-
-from nacre_gmsh import (  # noqa: E402
-    BakeSettings,
-    bake_step,
-    fluid_normal_sign,
-    gmsh_session,
-)
-from nacre_gmsh.corpus import CASES_BY_NAME, bake_case  # noqa: E402
+try:
+    import gmsh
+    import nacre_gmsh
+    from nacre_gmsh import BakeSettings, bake_step, fluid_normal_sign, gmsh_session
+    from nacre_gmsh.corpus import CASES_BY_NAME, bake_case
+except ImportError as error:
+    pytest.skip(
+        f"the nacre-gmsh distribution is not installed: {error}",
+        allow_module_level=True,
+    )
+except OSError as error:
+    # The gmsh wheel bundles libgmsh.so but not the system libraries it links
+    # against, so a plain ImportError is not the only way this can fail. Note
+    # that OSError is not an ImportError, which is why pytest.importorskip
+    # cannot be used here: it would abort collection instead of skipping.
+    pytest.skip(
+        "the gmsh wheel is installed but its shared library will not load "
+        f"({error}); on Debian or Ubuntu install libglu1-mesa",
+        allow_module_level=True,
+    )
 
 CASE_IDS = [case.name for case in ANCHOR_CASES]
 

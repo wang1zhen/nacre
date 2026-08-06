@@ -13,6 +13,7 @@ is genuinely absent, so it skips elsewhere.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -88,18 +89,10 @@ def test_importing_the_core_does_not_load_gmsh() -> None:
 def test_the_core_test_suite_runs_with_gmsh_absent() -> None:
     """The condition the ``core-license-boundary`` CI job creates."""
 
-    if _gmsh_is_installed():
+    if importlib.util.find_spec("gmsh") is not None:
         pytest.skip("gmsh is installed in this environment")
     with pytest.raises(ImportError):
         __import__("gmsh")
-
-
-def _gmsh_is_installed() -> bool:
-    try:
-        __import__("gmsh")
-    except ImportError:
-        return False
-    return True
 
 
 def main() -> int:
@@ -109,8 +102,6 @@ def main() -> int:
     script rather than a test: it is only meaningful in an environment built
     from the core distribution alone.
     """
-
-    import importlib.util
 
     reachable = [
         name

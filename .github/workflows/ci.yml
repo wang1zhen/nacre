@@ -60,6 +60,14 @@ jobs:
       - name: Start fallback Xvfb display
         uses: pyvista/setup-headless-display-action@v4
 
+      - name: Install Gmsh runtime libraries
+        # The gmsh wheel bundles libgmsh.so but not the system libraries it
+        # links against, and the runner image has none of them.
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes \
+            libglu1-mesa libxcursor1 libxinerama1 libxft2 libxrender1
+
       - name: Synchronize workspace
         run: uv sync --all-packages --locked
 
@@ -75,6 +83,16 @@ jobs:
 
       - name: Probe headless renderer fallback chain
         run: uv run python tests/rendering.py
+
+      - name: Assert the Gmsh frontend is usable
+        # tests/test_gmsh_bake.py skips itself when Gmsh will not load, so
+        # without this gate a broken runtime would silently drop every bake
+        # test, including both sign-convention experiments.
+        run: >-
+          uv run python -c "import gmsh; import nacre_gmsh;
+          gmsh.initialize();
+          print('gmsh', gmsh.option.getString('General.Version'), 'usable');
+          gmsh.finalize()"
 
       - name: Run tests
         run: uv run pytest
